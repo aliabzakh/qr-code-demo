@@ -161,9 +161,6 @@
     .outcome.accepted { color: var(--green-dark); background: rgba(132,189,0,.14); }
     .outcome.duplicate { color: #8a5900; background: #fff2c7; }
     .outcome.invalid { color: var(--danger); background: #feeaea; }
-    .pitch-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
-    .pitch-step { background: var(--soft); border-radius: 12px; padding: 12px; }
-    .pitch-step strong { color: var(--blue-dark); display: block; margin-bottom: 5px; }
     .table-scroll { overflow-x: auto; }
 
     .join-card { width: min(580px, 100%); margin: 0 auto; }
@@ -182,7 +179,7 @@
       header { align-items: flex-start; }
       .event-tag { display: none; }
       .grid-2, .scanner-layout { grid-template-columns: 1fr; }
-      .audit-metrics, .pitch-steps { grid-template-columns: repeat(2, 1fr); }
+      .audit-metrics { grid-template-columns: repeat(2, 1fr); }
       .qr-card { grid-template-columns: 1fr; text-align: center; }
       .qr-canvas { max-width: 150px; }
       .member { grid-template-columns: 40px minmax(0,1fr); }
@@ -321,15 +318,6 @@
           <div class="card pad metric"><strong id="audit-invalid">0</strong><span>Invalid registrations</span></div>
         </div>
         <div class="card pad">
-          <div class="section-head"><div><h2>Pitch demo path</h2><p class="helper" style="margin-top:5px">Use these four screens in order.</p></div><span class="count">Local audit</span></div>
-          <div class="pitch-steps">
-            <div class="pitch-step"><strong>1 · My group</strong><span class="helper">Show one employee linked to five registered guests.</span></div>
-            <div class="pitch-step"><strong>2 · Group pass</strong><span class="helper">Show four encrypted registration QR codes rotating every two seconds.</span></div>
-            <div class="pitch-step"><strong>3 · Scanner</strong><span class="helper">Run the same demo scan twice, then scan the invalid QR.</span></div>
-            <div class="pitch-step"><strong>4 · Audit</strong><span class="helper">Show accepted, duplicate-blocked, and rejected attempts.</span></div>
-          </div>
-        </div>
-        <div class="card pad" style="margin-top:18px">
           <div class="section-head"><h2>Scan attempt ledger</h2><span class="count" id="audit-ledger-count">0 records</span></div>
           <div class="table-scroll">
             <table class="audit-table">
