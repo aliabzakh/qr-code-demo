@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#0033a0">
   <title>Aramco Americas Conference Check-in</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/iife/reader/index.js"></script>
   <style>
     :root {
       --blue: #00a3e0;
@@ -146,6 +147,24 @@
     .metric { background: var(--soft); padding: 13px; border-radius: 12px; }
     .metric strong { display: block; font-size: 24px; color: var(--blue-dark); }
     .metric span { color: var(--muted); font-size: 12px; }
+    .validation { display: grid; gap: 5px; margin-top: 9px; }
+    .validation span { color: var(--muted); font-size: 11px; }
+    .validation span::before { content: "✓"; color: var(--green-dark); font-weight: 800; margin-right: 6px; }
+    .invalid .validation span::before { content: "×"; color: var(--danger); }
+    .audit-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+    .audit-table { width: 100%; border-collapse: collapse; }
+    .audit-table th, .audit-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .audit-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .audit-table td { font-size: 13px; }
+    .audit-table code { color: var(--blue-dark); font-size: 11px; }
+    .outcome { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .outcome.accepted { color: var(--green-dark); background: rgba(132,189,0,.14); }
+    .outcome.duplicate { color: #8a5900; background: #fff2c7; }
+    .outcome.invalid { color: var(--danger); background: #feeaea; }
+    .pitch-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
+    .pitch-step { background: var(--soft); border-radius: 12px; padding: 12px; }
+    .pitch-step strong { color: var(--blue-dark); display: block; margin-bottom: 5px; }
+    .table-scroll { overflow-x: auto; }
 
     .join-card { width: min(580px, 100%); margin: 0 auto; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -163,6 +182,7 @@
       header { align-items: flex-start; }
       .event-tag { display: none; }
       .grid-2, .scanner-layout { grid-template-columns: 1fr; }
+      .audit-metrics, .pitch-steps { grid-template-columns: repeat(2, 1fr); }
       .qr-card { grid-template-columns: 1fr; text-align: center; }
       .qr-canvas { max-width: 150px; }
       .member { grid-template-columns: 40px minmax(0,1fr); }
@@ -200,6 +220,7 @@
       <button class="active" data-view="group">My group</button>
       <button data-view="pass">Group pass</button>
       <button data-view="scanner">Scanner</button>
+      <button data-view="audit">Audit</button>
       <button data-view="join">Join group</button>
     </nav>
     <main>
@@ -264,16 +285,18 @@
           <div>
             <div class="camera" id="camera">
               <video id="camera-video" playsinline muted></video>
-              <div class="camera-copy" id="camera-copy"><strong>Align all four QR codes inside the frame</strong><br><span class="helper" style="color:rgba(255,255,255,.66)">Camera access requires HTTPS or localhost and a browser with BarcodeDetector support.</span></div>
+              <div class="camera-copy" id="camera-copy"><strong>Align all four QR codes inside the frame</strong><br><span class="helper" style="color:rgba(255,255,255,.66)">Works on phones over HTTPS using native detection or the cross-browser scanner fallback.</span></div>
               <div class="camera-frame" aria-hidden="true"></div>
+              <canvas id="scan-canvas" hidden></canvas>
             </div>
             <div class="scanner-tools">
               <button class="btn primary" id="start-camera">Start camera</button>
-              <button class="btn" id="demo-scan">Demo scan current four</button>
+              <button class="btn" id="demo-scan">Demo scan employee + 3 guests</button>
+              <button class="btn danger" id="demo-invalid">Demo invalid QR</button>
               <label class="btn" for="photo-input">Scan photo</label>
               <input id="photo-input" type="file" accept="image/*" hidden>
             </div>
-            <div class="notice" id="scanner-note">The live scanner uses the browser’s native multi-barcode detector. Use “Demo scan current four” if this device does not support it.</div>
+            <div class="notice" id="scanner-note">Phone ready: the app automatically chooses native multi-code scanning or the ZXing/WASM fallback.</div>
           </div>
           <aside class="card pad">
             <div class="scan-total">
@@ -283,6 +306,37 @@
             <div class="section-head" style="margin-top:22px"><h2>Latest scan</h2><button class="btn small" id="clear-results">Clear</button></div>
             <div class="result-list" id="result-list"><p class="empty">No codes scanned yet.</p></div>
           </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-audit" hidden>
+        <div class="view-head">
+          <div><h1>Audit & validation</h1><p class="sub">Every accepted, duplicate, and rejected scan is retained locally for this demo.</p></div>
+          <button class="btn" id="reset-audit">Reset demo</button>
+        </div>
+        <div class="audit-metrics">
+          <div class="card pad metric"><strong id="audit-attempts">0</strong><span>Total scan attempts</span></div>
+          <div class="card pad metric"><strong id="audit-accepted">0</strong><span>Accepted</span></div>
+          <div class="card pad metric"><strong id="audit-duplicates">0</strong><span>Duplicates blocked</span></div>
+          <div class="card pad metric"><strong id="audit-invalid">0</strong><span>Invalid registrations</span></div>
+        </div>
+        <div class="card pad">
+          <div class="section-head"><div><h2>Pitch demo path</h2><p class="helper" style="margin-top:5px">Use these four screens in order.</p></div><span class="count">Local audit</span></div>
+          <div class="pitch-steps">
+            <div class="pitch-step"><strong>1 · My group</strong><span class="helper">Show one employee linked to five registered guests.</span></div>
+            <div class="pitch-step"><strong>2 · Group pass</strong><span class="helper">Show four encrypted registration QR codes rotating every two seconds.</span></div>
+            <div class="pitch-step"><strong>3 · Scanner</strong><span class="helper">Run the same demo scan twice, then scan the invalid QR.</span></div>
+            <div class="pitch-step"><strong>4 · Audit</strong><span class="helper">Show accepted, duplicate-blocked, and rejected attempts.</span></div>
+          </div>
+        </div>
+        <div class="card pad" style="margin-top:18px">
+          <div class="section-head"><h2>Scan attempt ledger</h2><span class="count" id="audit-ledger-count">0 records</span></div>
+          <div class="table-scroll">
+            <table class="audit-table">
+              <thead><tr><th>Time</th><th>Attendee</th><th>Registration</th><th>Token hash</th><th>Result</th><th>Validation</th></tr></thead>
+              <tbody id="audit-body"><tr><td colspan="6" class="empty">Run a scanner demo to create audit records.</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -320,24 +374,24 @@
   <script>
     const EVENT_ID = 'AACO-ETC-2026';
     const ROTATION_MS = 2000;
-    const STORAGE_KEY = 'aaco-group-checkin-v1';
+    const STORAGE_KEY = 'aaco-group-checkin-v2';
     const seedMembers = [
-      ['m1','Maya Chen','Aramco Americas','maya.chen@example.com','Employee',true],
-      ['m2','Omar Rahman','Aramco Americas','omar.rahman@example.com','Speaker',true],
-      ['m3','Jordan Lee','Catalyst Labs','jordan.lee@example.com','Guest',true],
-      ['m4','Priya Shah','Gulf Systems','priya.shah@example.com','Guest',true],
-      ['m5','Ethan Brooks','CarbonWorks','ethan.brooks@example.com','Vendor',true],
-      ['m6','Sofia Martinez','Apex Energy','sofia.m@example.com','Guest',true],
-      ['m7','Noah Williams','Vector Geoscience','noah.w@example.com','Guest',true]
+      ['m1','Maya Chen','Aramco Americas','maya.chen@example.com','Employee',true,'REG-1042-01'],
+      ['m2','Omar Rahman','Northstar Energy','omar.rahman@example.com','Guest',true,'REG-1042-02'],
+      ['m3','Jordan Lee','Catalyst Labs','jordan.lee@example.com','Guest',true,'REG-1042-03'],
+      ['m4','Priya Shah','Gulf Systems','priya.shah@example.com','Guest',true,'REG-1042-04'],
+      ['m5','Ethan Brooks','CarbonWorks','ethan.brooks@example.com','Guest',true,'REG-1042-05'],
+      ['m6','Sofia Martinez','Apex Energy','sofia.m@example.com','Guest',true,'REG-1042-06']
     ];
     const initialState = {
-      leaderId: 'm1', requireApproval: false, activeBatch: 0, checkedIn: [], pending: [],
-      members: seedMembers.map(([id,name,company,email,type,safety]) => ({id,name,company,email,type,safety}))
+      leaderId: 'm1', requireApproval: false, activeBatch: 0, checkedIn: [], pending: [], auditLog: [],
+      members: seedMembers.map(([id,name,company,email,type,safety,registrationId]) => ({id,name,company,email,type,safety,registrationId,partyId:'PARTY-1042',registrationStatus:'active'}))
     };
     let state;
     try { state = {...initialState, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')}; }
     catch { state = structuredClone(initialState); }
-    let paused = false, elapsed = 0, lastTick = performance.now(), cameraStream = null, scanning = false, detector = null;
+    let paused = false, elapsed = 0, lastTick = performance.now(), cameraStream = null, scanning = false, detector = null, scannerEngine = null;
+    const recentlySeen = new Map();
     const $ = (q, root=document) => root.querySelector(q);
     const $$ = (q, root=document) => [...root.querySelectorAll(q)];
     const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -353,6 +407,7 @@
       if (name !== 'scanner') stopCamera();
       if (name === 'pass') renderPass();
       if (name === 'scanner') renderResults([]);
+      if (name === 'audit') renderAudit();
       scrollTo({top:0,behavior:'smooth'});
     }
     $$('nav button').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
@@ -365,7 +420,7 @@
       $('#member-list').innerHTML = state.members.map(m => `
         <div class="member">
           <div class="avatar">${initials(m.name)}</div>
-          <div><div class="member-name">${escapeHtml(m.name)} ${m.id===state.leaderId?'<span class="count">Leader</span>':''}</div><div class="member-meta">${escapeHtml(m.company)} · ${escapeHtml(m.type)}</div></div>
+          <div><div class="member-name">${escapeHtml(m.name)} ${m.id===state.leaderId?'<span class="count">Employee host</span>':''}</div><div class="member-meta">${escapeHtml(m.company)} · ${escapeHtml(m.type)} · ${escapeHtml(m.registrationId||'Pending registration')}</div></div>
           <div class="actions">
             ${m.id!==state.leaderId?`<button class="btn small" data-transfer="${m.id}">Make leader</button><button class="btn small danger" data-remove="${m.id}">Remove</button>`:''}
           </div>
@@ -384,10 +439,11 @@
     $('#approval-toggle').addEventListener('change', e => { state.requireApproval=e.target.checked; save(); renderGroup(); toast(state.requireApproval?'Approval required':'Instant joining enabled'); });
     $('#copy-link').addEventListener('click', async () => { try { await navigator.clipboard.writeText(inviteUrl()); toast('Invite link copied'); } catch { $('#invite-link').select(); document.execCommand('copy'); toast('Invite link copied'); } });
     $('#share-link').addEventListener('click', async () => { if(navigator.share) await navigator.share({title:'Join my conference group',text:'Join my Aramco Americas conference group',url:inviteUrl()}); else $('#copy-link').click(); });
-    $('#demo-request').addEventListener('click', () => { const guest={id:uid(),name:'Alex Johnson',company:'Nova Engineering',email:'alex@example.com',type:'Guest',safety:true}; if(state.requireApproval) state.pending.push(guest); else state.members.push(guest); save(); renderGroup(); toast(state.requireApproval?'Request added for approval':'Alex joined the group'); });
+    function registeredGuest(name, company, email) { const id=uid(); return {id,name,company,email,type:'Guest',safety:true,registrationId:`REG-1042-${String(state.members.length+state.pending.length+1).padStart(2,'0')}`,partyId:'PARTY-1042',registrationStatus:'active'}; }
+    $('#demo-request').addEventListener('click', () => { const guest=registeredGuest('Alex Johnson','Nova Engineering','alex@example.com'); if(state.requireApproval) state.pending.push(guest); else state.members.push(guest); save(); renderGroup(); toast(state.requireApproval?'Request added for approval':'Alex joined the group'); });
     $('#preview-nfc').addEventListener('click', () => $('#nfc-dialog').showModal());
     $('#close-nfc').addEventListener('click', () => $('#nfc-dialog').close());
-    $('#simulate-nfc').addEventListener('click', () => { const guest={id:uid(),name:'Sam Rivera',company:'Terra Dynamics',email:'sam.rivera@example.com',type:'Guest',safety:true}; if(state.requireApproval) state.pending.push(guest); else state.members.push(guest); save(); renderGroup(); $('#nfc-dialog').close(); toast(state.requireApproval?'NFC request added for approval':'NFC handoff complete'); });
+    $('#simulate-nfc').addEventListener('click', () => { const guest=registeredGuest('Sam Rivera','Terra Dynamics','sam.rivera@example.com'); if(state.requireApproval) state.pending.push(guest); else state.members.push(guest); save(); renderGroup(); $('#nfc-dialog').close(); toast(state.requireApproval?'NFC request added for approval':'NFC handoff complete'); });
 
     const enc = new TextEncoder(), dec = new TextDecoder();
     const b64u = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -398,7 +454,7 @@
     }
     async function tokenFor(member) {
       const iv=crypto.getRandomValues(new Uint8Array(12));
-      const payload={v:1,event:EVENT_ID,exp:Date.now()+86400000,id:member.id,name:member.name,company:member.company,email:member.email,type:member.type,safety:member.safety};
+      const payload={v:1,event:EVENT_ID,exp:Date.now()+86400000,id:member.id,name:member.name,company:member.company,email:member.email,type:member.type,safety:member.safety,registrationId:member.registrationId,partyId:member.partyId};
       const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},await cryptoKey(),enc.encode(JSON.stringify(payload)));
       return `aa1.${b64u(iv)}.${b64u(new Uint8Array(cipher))}`;
     }
@@ -434,53 +490,103 @@
     function stopCamera() { scanning=false; if(cameraStream){ cameraStream.getTracks().forEach(t=>t.stop()); cameraStream=null; } $('#camera-video').srcObject=null; $('#camera-copy').hidden=false; $('#start-camera').textContent='Start camera'; }
     async function startCamera() {
       if(cameraStream){ stopCamera(); return; }
-      if(!('BarcodeDetector' in window)) { toast('Multi-code camera detection is not supported here'); return; }
+      if(!navigator.mediaDevices?.getUserMedia) { toast('Open the Vercel HTTPS link to enable the phone camera'); return; }
       try {
-        detector=new BarcodeDetector({formats:['qr_code']});
+        if('BarcodeDetector' in window) { detector=new BarcodeDetector({formats:['qr_code']}); scannerEngine='native'; }
+        else if(window.ZXingWASM?.readBarcodes) { detector=null; scannerEngine='wasm'; }
+        else { throw new Error('Scanner library did not load'); }
         cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-        const video=$('#camera-video'); video.srcObject=cameraStream; await video.play(); scanning=true; $('#camera-copy').hidden=true; $('#start-camera').textContent='Stop camera'; scanLoop();
-      } catch(e) { toast('Camera unavailable: '+e.message); }
+        const video=$('#camera-video'); video.srcObject=cameraStream; await video.play(); scanning=true; $('#camera-copy').hidden=true; $('#start-camera').textContent='Stop camera';
+        $('#scanner-note').textContent=scannerEngine==='native'?'Live scanner: native multi-code detection.':'Live scanner: phone-compatible ZXing/WASM multi-code fallback.';
+        scanLoop();
+      } catch(e) { toast('Camera unavailable: '+e.message); stopCamera(); }
+    }
+    async function detectWithWasm(source) {
+      const results=await window.ZXingWASM.readBarcodes(source,{tryHarder:true,formats:['QRCode'],maxNumberOfSymbols:4});
+      return results.filter(r=>r.text&&!r.error).map(r=>r.text);
     }
     async function scanLoop() {
-      if(!scanning||!detector) return;
-      try { const codes=await detector.detect($('#camera-video')); if(codes.length) await processTokens([...new Set(codes.map(c=>c.rawValue))]); }
-      catch(e) {}
-      if(scanning) setTimeout(scanLoop,320);
+      if(!scanning) return;
+      try {
+        let tokens=[];
+        if(scannerEngine==='native') tokens=(await detector.detect($('#camera-video'))).map(c=>c.rawValue);
+        else {
+          const video=$('#camera-video'), canvas=$('#scan-canvas'), maxWidth=960, scale=Math.min(1,maxWidth/video.videoWidth);
+          canvas.width=Math.max(1,Math.round(video.videoWidth*scale)); canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+          const context=canvas.getContext('2d',{willReadFrequently:true}); context.drawImage(video,0,0,canvas.width,canvas.height);
+          tokens=await detectWithWasm(context.getImageData(0,0,canvas.width,canvas.height));
+        }
+        const now=Date.now();
+        const fresh=[...new Set(tokens)].filter(token=>now-(recentlySeen.get(token)||0)>8000);
+        fresh.forEach(token=>recentlySeen.set(token,now));
+        if(fresh.length) await processTokens(fresh);
+      } catch(e) { $('#scanner-note').textContent='Scanner is active. Move closer and keep the QR codes steady.'; }
+      if(scanning) setTimeout(scanLoop,420);
     }
     $('#start-camera').addEventListener('click', startCamera);
-    $('#photo-input').addEventListener('change', async e => { if(!e.target.files[0]) return; if(!('BarcodeDetector' in window)){toast('Photo scanning is not supported in this browser');return;} try{ detector=new BarcodeDetector({formats:['qr_code']}); const image=await createImageBitmap(e.target.files[0]); const codes=await detector.detect(image); await processTokens([...new Set(codes.map(c=>c.rawValue))]); if(!codes.length)toast('No QR codes found'); }catch(err){toast('Could not scan photo');} e.target.value=''; });
-    $('#demo-scan').addEventListener('click', async () => { const members=visibleMembers(); const tokens=await Promise.all(members.map(tokenFor)); await processTokens(tokens); });
+    $('#photo-input').addEventListener('change', async e => {
+      const file=e.target.files[0]; if(!file) return;
+      try {
+        let tokens=[];
+        if('BarcodeDetector' in window) { const image=await createImageBitmap(file); tokens=(await new BarcodeDetector({formats:['qr_code']}).detect(image)).map(c=>c.rawValue); }
+        else if(window.ZXingWASM?.readBarcodes) tokens=await detectWithWasm(file);
+        else throw new Error('Scanner library did not load');
+        if(tokens.length) await processTokens([...new Set(tokens)]); else toast('No QR codes found');
+      } catch(err){ toast('Could not scan photo: '+err.message); }
+      e.target.value='';
+    });
+    $('#demo-scan').addEventListener('click', async () => { const tokens=await Promise.all(state.members.slice(0,4).map(tokenFor)); await processTokens(tokens); });
+    $('#demo-invalid').addEventListener('click', async () => { const fake={id:'not-registered',name:'Unregistered Visitor',company:'Unknown organization',email:'unknown@example.com',type:'Guest',safety:true,registrationId:'REG-9999-99',partyId:'PARTY-9999'}; await processTokens([await tokenFor(fake)]); });
     $('#clear-results').addEventListener('click', () => renderResults([]));
+    async function tokenFingerprint(token) { const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(token))); return [...hash.slice(0,6)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+    function addAudit(entry) { state.auditLog=state.auditLog||[]; state.auditLog.unshift({id:uid(),at:new Date().toISOString(),scanner:'Gate A · Mobile scanner',...entry}); state.auditLog=state.auditLog.slice(0,100); }
     async function processTokens(tokens) {
       const results=[];
       for(const token of tokens.slice(0,4)) {
+        let data=null, status='invalid', detail='Unreadable registration QR';
+        const tokenHash=await tokenFingerprint(token);
         try {
-          const data=await readToken(token);
+          data=await readToken(token);
           if(data.event!==EVENT_ID) throw new Error('Wrong event');
-          if(data.exp<Date.now()) throw new Error('Expired pass');
-          if(!data.safety) throw new Error('Safety acknowledgement missing');
+          if(data.exp<Date.now()) throw new Error('Expired registration QR');
+          const registration=state.members.find(m=>m.id===data.id&&m.registrationId===data.registrationId);
+          if(!registration) throw new Error('Registration not found');
+          if(registration.registrationStatus!=='active') throw new Error('Registration revoked');
+          if(registration.partyId!==data.partyId) throw new Error('Party registration mismatch');
+          if(!registration.safety||!data.safety) throw new Error('Safety acknowledgement missing');
           const duplicate=state.checkedIn.includes(data.id);
+          status=duplicate?'duplicate':'accepted'; detail=duplicate?'Duplicate blocked — attendee already checked in':'Registration matched and check-in accepted';
           if(!duplicate) state.checkedIn.push(data.id);
-          results.push({...data,status:duplicate?'duplicate':'valid'});
-        } catch(e) { results.push({name:'Unreadable pass',company:e.message,status:'invalid'}); }
+          results.push({...registration,status,detail,validations:['Encrypted token opened','Event and registration matched',duplicate?'Prior check-in found and blocked':'No prior check-in found']});
+        } catch(e) {
+          detail=e.message;
+          results.push({name:data?.name||'Unreadable pass',company:data?.company||'No matching registration',registrationId:data?.registrationId||'—',status:'invalid',detail,validations:[detail]});
+        }
+        addAudit({name:data?.name||'Unknown attendee',registrationId:data?.registrationId||'—',tokenHash,outcome:status,validation:detail});
       }
-      save(); renderResults(results);
+      save(); renderResults(results); renderAudit();
     }
     function renderResults(results) {
       $('#scan-count').textContent=results.length;
       $('#checked-count').textContent=state.checkedIn.length;
-      $('#result-list').innerHTML=results.length?results.map(r=>`<div class="result ${r.status}"><div class="result-line"><strong>${escapeHtml(r.name)}</strong><span class="status">${r.status==='valid'?'Checked in':r.status}</span></div><div class="member-meta">${escapeHtml(r.company||'')} ${r.type?'· '+escapeHtml(r.type):''}</div></div>`).join(''):'<p class="empty">No codes scanned yet.</p>';
+      $('#result-list').innerHTML=results.length?results.map(r=>`<div class="result ${r.status==='accepted'?'':r.status}"><div class="result-line"><strong>${escapeHtml(r.name)}</strong><span class="status">${r.status==='accepted'?'Checked in':r.status}</span></div><div class="member-meta">${escapeHtml(r.registrationId||'')} · ${escapeHtml(r.company||'')}</div><div class="validation">${r.validations.map(v=>`<span>${escapeHtml(v)}</span>`).join('')}</div></div>`).join(''):'<p class="empty">No codes scanned yet.</p>';
     }
+    function renderAudit() {
+      const log=state.auditLog||[], accepted=log.filter(x=>x.outcome==='accepted').length, duplicates=log.filter(x=>x.outcome==='duplicate').length, invalid=log.filter(x=>x.outcome==='invalid').length;
+      $('#audit-attempts').textContent=log.length; $('#audit-accepted').textContent=accepted; $('#audit-duplicates').textContent=duplicates; $('#audit-invalid').textContent=invalid; $('#audit-ledger-count').textContent=`${log.length} record${log.length===1?'':'s'}`;
+      $('#audit-body').innerHTML=log.length?log.map(row=>`<tr><td>${new Date(row.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}<div class="helper">${escapeHtml(row.scanner)}</div></td><td><strong>${escapeHtml(row.name)}</strong></td><td><code>${escapeHtml(row.registrationId)}</code></td><td><code>${escapeHtml(row.tokenHash)}</code></td><td><span class="outcome ${row.outcome}">${escapeHtml(row.outcome)}</span></td><td>${escapeHtml(row.validation)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">Run a scanner demo to create audit records.</td></tr>';
+    }
+    $('#reset-audit').addEventListener('click',()=>{state.checkedIn=[];state.auditLog=[];save();renderAudit();renderResults([]);toast('Local audit reset');});
 
     $('#join-form').addEventListener('submit', e => {
       e.preventDefault();
-      const member={id:uid(),name:$('#join-name').value.trim(),company:$('#join-company').value.trim(),email:$('#join-email').value.trim(),type:$('#join-type').value,safety:$('#join-safety').checked};
+      const member=registeredGuest($('#join-name').value.trim(),$('#join-company').value.trim(),$('#join-email').value.trim()); member.type=$('#join-type').value; member.safety=$('#join-safety').checked;
       if(state.requireApproval){state.pending.push(member);$('#join-success-title').textContent='Request sent';$('#join-success-copy').textContent='The group leader will approve your registration.';}
       else{state.members.push(member);$('#join-success-title').textContent='You’re in the group';$('#join-success-copy').textContent='Your pass is ready and will appear in the next QR rotation.';}
       save(); renderGroup(); $('#join-form-wrap').hidden=true; $('#join-success').classList.add('show');
     });
 
-    renderGroup(); renderPass(); renderResults([]);
+    renderGroup(); renderPass(); renderResults([]); renderAudit();
     const query=new URLSearchParams(location.search); if(query.has('join')) switchView('join');
   </script>
 </body>
